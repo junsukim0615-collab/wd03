@@ -227,126 +227,202 @@ def collect(network):
 
 
 def report():
-    """Analyze the latest completed run, without replacing failed DNS data."""
+    """Analyze saved runs only; read packet evidence with Wireshark's tshark."""
     with open(os.path.join(OUT, "chains.json"), encoding="utf-8") as stream:
         data = json.load(stream)
-    runs = [r for r in data["runs"] if r.get("completed")]
-    if not runs:
-        raise ValueError("No completed run. Run --collect first.")
-    run = max(runs, key=lambda r: r["started_at"])
-    lines = ["# Task 2: DNS steering report", "",
-             f"Run: {run['run_id']}; network label: {run['network']}",
-             f"UTC: {run['started_at']} to {run['finished_at']}", "",
-             "Chain length counts CNAME edges. Final zone below is an operational "
-             "domain label, not a zone cut verified with SOA queries.", "",
-             "Rule R (baseline): different last two labels imply third-party CDN. "
-             "The evidence-based classification checks known provider suffixes and "
-             "same-organization exceptions separately.", "",
-             "| Site | Chain length | Final zone | Third party? | Rule R verdict |",
-             "|---|---|---|---|---|"]
-    classifications, comparisons, counterexamples = {}, {}, []
-    details = []
-    for site in SITES:
-        results = run["sites"].get(site, {})
-        good = [v for v in results.values() if v.get("success")
-                and v.get("chain_complete") and v.get("addresses")]
-        chains = sorted({tuple(v["chain"]) for v in good})
-        kind, reason = classify(site, chains)
-        classifications[site] = kind
-        verdicts = {last_two(site) != last_two(c[-1]) for c in chains}
-        baseline = ", ".join("yes" if v else "no" for v in sorted(verdicts)) or "unknown"
-        zones = ", ".join(sorted({final_zone(c[-1]) for c in chains})) or "unknown"
-        lengths = ", ".join(map(str, sorted({len(c)-1 for c in chains}))) or "unknown"
-        lines.append(f"| {site} | {lengths} | {zones} | {reason} | {baseline} |")
-        if kind == "own" and True in verdicts:
-            counterexamples.append(f"- {site}: `{' -> '.join(chains[0])}`. Rule R says "
-                                   "third party, but this is Wikimedia's own CDN. "
-                                   "Different domain names do not imply different organizations.")
-        # A failed/empty lookup is not an address-set difference.
-        comparisons[site] = (len(good) >= 2,
-                             len({frozenset(v['addresses']) for v in good}) > 1)
-        for label, result in results.items():
-            details += [f"### {site} / {label}", "",
-                        "Chain: `" + " -> ".join(result["chain"]) + "`",
-                        "A: `" + ", ".join(result["addresses"]) + "`",
-                        "Errors: " + ("; ".join(result["errors"]) or "none"), ""]
-    lines += ["", "## Actual classification error", ""] + (counterexamples or [
-        "No observed counterexample in this run. The required empirical error example "
-        "is not satisfied by these measurements; do not invent one."])
-    lines += ["", "The last-two-label rule also collapses bbc.co.uk to co.uk and "
-              "korea.ac.kr to ac.kr. CloudFront and S3 must not be conflated: "
-              "cloudfront.net identifies a CDN; amazonaws.com alone does not.", "",
-              "## Resolver comparison", "",
-              "Compare successful, nonempty IPv4 sets within this run; ignore ordering. "
-              "A site needs at least two successful resolver measurements.", "",
-              "| Site | CDN category | Comparable? | Different sets? |",
-              "|---|---|---|---|"]
-    for site in SITES:
-        comparable, different = comparisons[site]
-        lines.append(f"| {site} | {classifications[site]} | {comparable} | "
-                     f"{different if comparable else 'unknown'} |")
-    for title, kinds in [("Service-level CDN", {"external", "own", "service"}),
-                         ("Hostname-supported CDN (excludes Netflix)", {"external", "own"}),
-                         ("Third-party CDN only", {"external"})]:
-        classified = [s for s in SITES if classifications[s] in kinds]
-        eligible = [s for s in classified if comparisons[s][0]]
-        changed = sum(comparisons[s][1] for s in eligible)
-        lines += ["", f"**{title}: {changed} of {len(eligible)} sites answered differently "
-                  "to a different resolver.** "
-                  f"{len(classified)-len(eligible)} classified sites excluded due to missing data."]
-    lines += ["", "## Interpretation and limitations", "",
-              "Resolver-dependent answers are compatible with DNS steering, but do not "
-              "prove that a replica is geographically closer. Queries are sequential; "
-              "time, caching, load balancing and answer subsets may also change results. "
-              "Google and Quad9 use anycast; their different addresses do not prove that "
-              "the answering resolver instances are in different places. No RTT or server "
-              "geolocation was measured. Equal IPs do not rule out anycast steering.", "",
-              "Netflix is included only in the service-level count, following the assignment's "
-              "own-CDN example. Resolving www.netflix.com does not measure Open Connect video "
-              "delivery. Unknown sites are excluded, not declared non-CDN. CNAME absence "
-              "does not prove CDN absence.", "", "## Classification references", "",
-              "- [Wikimedia CDN](https://wikitech.wikimedia.org/wiki/CDN)",
-              "- [Netflix Open Connect](https://openconnect.netflix.com/en/)",
-              "- [Akamai edge hostnames](https://techdocs.akamai.com/edge-hostnames/docs/edge-hn-terminology)",
-              "- [Fastly routing](https://www.fastly.com/documentation/guides/concepts/routing-traffic-to-fastly/)",
-              "- [Netlify DNS](https://docs.netlify.com/manage/domains/configure-domains/configure-external-dns/)",
-              "", "## Measured chains and addresses", ""] + details
-    path = os.path.join(OUT, "report.md")
-    with open(path, "w", encoding="utf-8") as stream:
-        stream.write("\n".join(lines) + "\n")
-    print("Saved " + path)
+    if data.get("schema_version") != 1:
+        raise ValueError("Unsupported chains.json schema")
+    networks = ["학교 Wi-Fi", "휴대폰 테더링"]
+    runs = []
+    for network in networks:
+        candidates = [r for r in data["runs"]
+                      if r.get("network") == network and r.get("completed")]
+        if not candidates:
+            raise ValueError(f"No completed run for {network}")
+        run = max(candidates, key=lambda r: r["started_at"])
+        for site in SITES:
+            for resolver in RESOLVERS:
+                result = run.get("sites", {}).get(site, {}).get(resolver, {})
+                if (not result.get("success") or not result.get("chain_complete")
+                        or not result.get("addresses") or result.get("errors")):
+                    raise ValueError(f"Incomplete evidence: {network}/{site}/{resolver}")
+                chain = result.get("chain", [])
+                if (not chain or chain[0] != site or len(set(chain)) != len(chain)
+                        or result.get("chain_length") != len(chain) - 1
+                        or result.get("final_name") != chain[-1]):
+                    raise ValueError(f"Invalid chain: {network}/{site}/{resolver}")
+                for address in result["addresses"]:
+                    ipaddress.IPv4Address(address)
+        runs.append(run)
 
+    def cell(value):
+        return str(value).replace("|", "\\|").replace("\n", " ")
 
-def last_two(name):
-    return ".".join(normalize(name).split(".")[-2:])
+    def last_two(name):
+        return ".".join(normalize(name).split(".")[-2:])
 
-
-def suffix(name, domain):
-    return name == domain or name.endswith("." + domain)
-
-
-def final_zone(name):
-    for domain in ("korea.ac.kr", "bbc.co.uk"):
-        if suffix(name, domain):
-            return domain
-    return last_two(name)
-
-
-def classify(site, chains):
     providers = {"edgekey.net": "Akamai", "edgesuite.net": "Akamai",
                  "akamaiedge.net": "Akamai", "akamai.net": "Akamai",
-                 "fastly.net": "Fastly", "netlifyglobalcdn.com": "Netlify",
-                 "cloudfront.net": "CloudFront"}
-    found = {provider for chain in chains for name in chain
-             for domain, provider in providers.items() if suffix(name, domain)}
-    if found:
-        return "external", "yes: " + ", ".join(sorted(found))
-    if site == "www.wikipedia.org" and chains and all(
-            suffix(c[-1], "wikimedia.org") for c in chains):
-        return "own", "no: Wikimedia own CDN"
-    if site == "www.netflix.com" and chains:
-        return "service", "not established for this host; Netflix owns Open Connect"
-    return "unknown", "unknown (not evidence of absence)"
+                 "fastly.net": "Fastly", "netlifyglobalcdn.com": "Netlify"}
+    lines = ["# Task 2 — DNS capture and steering report", "", "## 측정 환경", "",
+             "학교 Wi-Fi와 휴대폰 테더링의 최신 완료 기록을 선택했다. "
+             "`현재 네트워크 이름` 기록과 미완료 기록은 제외했다.", ""]
+    for run in runs:
+        lines.append(f"- {cell(run['network'])}: {run['started_at']} ~ "
+                     f"{run['finished_at']} (UTC), run ID `{run['run_id']}`")
+    lines += ["", "리졸버: system, Google 8.8.8.8, Quad9 9.9.9.9. "
+              "각 네트워크 12개 사이트 × 3개 리졸버의 결과를 검증했다.", "",
+              "## B4. Third-party CDN classification / 제3자 CDN 분류", "",
+              "규칙 R: 원래 이름과 최종 이름의 마지막 두 라벨이 다르면 제3자로 판정한다. "
+              "별도로 알려진 CDN 도메인과 운영 주체를 근거로 분류한다. "
+              "CNAME 부재나 같은 도메인이라는 사실은 CDN 부재를 증명하지 않는다.", "",
+              "최종 zone은 SOA로 검증한 zone cut이 아닌 운영 도메인 표기다. "
+              "서로 다른 체인은 모두 표시한다. 제3자 미확인은 부재 확정이 아니다.", "",
+              "| 사이트 | 체인 길이 | 최종 zone | 제3자 여부 / 근거 | 규칙 R 판정 |",
+              "|---|---|---|---|---|---|"]
+    classifications, changes, chain_rows, address_rows = {}, {}, [], []
+    for site in SITES:
+        results = [r["sites"][site][k] for r in runs for k in RESOLVERS]
+        chains = sorted({tuple(v["chain"]) for v in results})
+        found = {provider for chain in chains for host in chain
+                 for suffix, provider in providers.items()
+                 if host == suffix or host.endswith("." + suffix)}
+        if found:
+            kind, reason = "external", "예 — " + ", ".join(sorted(found))
+        elif site == "www.wikipedia.org" and all(
+                last_two(c[-1]) == "wikimedia.org" for c in chains):
+            kind, reason = "own", "아니오 — Wikimedia 자체 CDN"
+        elif site == "www.netflix.com" and all(
+                last_two(c[-1]) == "netflix.com" for c in chains):
+            kind, reason = "service", "외부 미확인 — 서비스 단위 자체 CDN"
+        else:
+            kind, reason = "unknown", "외부 CDN 미확인; CDN 집계 제외"
+        classifications[site] = kind
+        verdicts = {"예" if last_two(site) != last_two(c[-1]) else "아니오" for c in chains}
+        zones = {"korea.ac.kr" if c[-1].endswith(".korea.ac.kr") else last_two(c[-1]) for c in chains}
+        lengths = sorted({len(c) - 1 for c in chains})
+        lines.append(f"| {site} | {', '.join(map(str, lengths))} | "
+                     f"{', '.join(sorted(zones))} | {reason} | {', '.join(sorted(verdicts))} |")
+        sets = [[frozenset(r["sites"][site][k]["addresses"]) for k in RESOLVERS] for r in runs]
+        resolver_diff = any(len(set(group)) > 1 for group in sets)
+        network_diff = any(x != y for x, y in zip(*sets))
+        changes[site] = (resolver_diff, network_diff)
+        for chain in chains:
+            chain_rows.append(f"- `{site}`: `{' → '.join(chain)}`")
+        for run in runs:
+            for resolver in RESOLVERS:
+                result = run["sites"][site][resolver]
+                addresses = sorted(set(result["addresses"]), key=ipaddress.IPv4Address)
+                servers = sorted({q.get("server") for q in result.get("queries", []) if q.get("server")})
+                address_rows.append(f"| {cell(run['network'])} | {site} | {resolver} | "
+                                    f"{', '.join(addresses)} | {cell(', '.join(servers))} |")
+    wiki = runs[0]["sites"]["www.wikipedia.org"]["system"]["chain"]
+    if classifications["www.wikipedia.org"] != "own" or last_two(wiki[0]) == last_two(wiki[-1]):
+        raise ValueError("Saved Wikipedia chain no longer supports the documented counterexample")
+    lines += ["", "### 규칙의 실제 오판", "",
+              f"Wikipedia의 관측 체인은 `{' → '.join(wiki)}`이다. "
+              "규칙 R은 wikipedia.org와 wikimedia.org를 다른 조직으로 오인하여 제3자로 판정한다. "
+              "그러나 Wikimedia가 자체 CDN을 운영하므로 거짓 양성이다. "
+              "도메인 차이는 운영 조직 차이와 같지 않다. [Wikimedia CDN](https://wikitech.wikimedia.org/wiki/CDN)", "",
+              "마지막 두 라벨은 BBC를 co.uk, 고려대를 ac.kr로 축약하는 한계도 있다. "
+              "이번 BBC의 외부 Fastly 판정 자체는 맞으므로 이를 실제 오판 사례로 세지 않는다.", "",
+              "### 분류 근거와 분모", "",
+              "Akamai/Fastly/Netlify 도메인은 외부 CDN 근거로 사용했다. "
+              "[Akamai](https://techdocs.akamai.com/edge-hostnames/docs/edge-hn-terminology), "
+              "[Fastly](https://www.fastly.com/documentation/guides/concepts/routing-traffic-to-fastly/), "
+              "[Netlify](https://answers.netlify.com/t/how-can-i-change-which-netlify-site-my-hostname-is-pointing-to/3259)", "",
+              "Netflix는 과제의 서비스 단위 분류에 따라 자체 CDN 서비스로 포함했다. "
+              "다만 www.netflix.com의 DNS 조회는 영상 CDN 경로를 직접 측정한 것이 아니다. "
+              "[Netflix Open Connect](https://openconnect.netflix.com/en/). "
+              "GitHub의 주소 변화만으로 CDN이라고 판단하지 않으며, 고려대와 함께 분모에서 제외한다.", "",
+              "## B5. Resolver and network steering 비교", "",
+              "IPv4 주소 집합으로 비교하여 순서와 중복은 무시한다. 같은 네트워크에서 리졸버끼리, "
+              "같은 리졸버에서 네트워크끼리 비교한다. 하나라도 차이가 있으면 사이트를 한 번 센다.", "",
+              "| 사이트 | CDN 집계 | 리졸버 차이 | 네트워크 차이 |",
+              "|---|---|---|---|"]
+    for site, (rd, nd) in changes.items():
+        lines.append(f"| {site} | {'포함' if classifications[site] != 'unknown' else '제외'} | "
+                     f"{'있음' if rd else '없음'} | {'있음' if nd else '없음'} |")
+    for label, kinds in [("서비스 단위 주 집계", {"external", "own", "service"}),
+                         ("Netflix 제외 보조 집계", {"external", "own"}),
+                         ("제3자 CDN만 집계", {"external"})]:
+        selected = [s for s in SITES if classifications[s] in kinds]
+        n = len(selected)
+        m = sum(any(changes[s]) for s in selected)
+        rd = sum(changes[s][0] for s in selected)
+        nd = sum(changes[s][1] for s in selected)
+        lines += ["", f"**{label}: 학교 Wi-Fi와 휴대폰 테더링에서 CDN 사이트 {n}개 중 "
+                  f"{m}개가 리졸버 또는 네트워크에 따라 달랐다 ({m}/{n}).** "
+                  f"리졸버 차이 {rd}/{n}, 네트워크 차이 {nd}/{n}."]
+    lines += ["", "### 해석과 한계", "",
+              "응답 변화는 확인했지만 ‘더 가까운 복제 서버’라는 주장은 입증하지 못한다. "
+              "서버 위치, RTT, HTTP 및 영상 전송을 측정하지 않았다. 두 측정의 시간 차이, 캐시와 "
+              "부하 분산도 영향을 줄 수 있다. system은 네트워크 변경 시 DNS 서버 자체도 바뀐다. "
+              "공개 DNS의 anycast 주소를 물리적 위치로 간주하지 않으며, 같은 IP라고 같은 서버라는 "
+              "뜻도 아니다. CDN 사용과 주소 변화, 사용자 위치에 따른 선택을 구분해야 한다.", "",
+              "## Part A. 패킷 증거", ""]
+    tshark = shutil.which("tshark")
+    if not tshark:
+        candidate = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Wireshark", "tshark.exe")
+        if os.path.isfile(candidate):
+            tshark = candidate
+    if not tshark:
+        raise RuntimeError("Wireshark tshark is required to verify Part A")
+    capture = os.path.join(OUT, "dns.pcapng")
+    # Fields output provides stable scalar metadata; detailed NS/A sections below
+    # are validated independently with display filters.
+    fields = ["frame.number", "frame.len", "dns.id", "dns.flags.response", "dns.qry.name",
+              "dns.count.answers", "dns.count.auth_rr", "dns.count.add_rr", "udp.length",
+              "dns.response_to", "ip.src", "ip.dst", "dns.a"]
+    def packets(display_filter):
+        args = [tshark, "-r", capture, "-Y", display_filter, "-T", "fields"]
+        for field in fields:
+            args += ["-e", field]
+        proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", timeout=30)
+        if proc.returncode:
+            raise RuntimeError(proc.stderr)
+        return [dict(zip(fields, line.split("\t"))) for line in proc.stdout.splitlines()]
+    responses = packets("dns.flags.response == 1")
+    referrals = packets('dns.flags.response == 1 && dns.qry.name == "www.korea.ac.kr" && dns.count.answers == 0 && dns.ns')
+    answers = packets('dns.flags.response == 1 && dns.qry.name == "www.korea.ac.kr" && dns.count.answers > 0 && dns.a')
+    if not responses or not referrals or not answers:
+        raise ValueError("Capture does not contain the required referral and answer evidence")
+    referral, answer = referrals[0], answers[-1]
+    query_num = referral["dns.response_to"]
+    query = packets(f"frame.number == {int(query_num)}")[0]
+    if query["dns.id"] != referral["dns.id"] or query["ip.src"] != referral["ip.dst"]:
+        raise ValueError("Query/response match failed")
+    lines += ["- 파일: `out/dns.pcapng` (실측 패킷)",
+              f"- 질의 {query_num}번 ↔ 응답 {referral['frame.number']}번: Transaction ID `{referral['dns.id']}`.",
+              f"- 위임 응답 {referral['frame.number']}번: Answer {referral['dns.count.answers']}개, "
+              f"Authority {referral['dns.count.auth_rr']}개, NS 레코드 존재.",
+              f"- 최종 답변 {answer['frame.number']}번: Answer {answer['dns.count.answers']}개, A 주소 `{answer['dns.a']}`."]
+    if any(not r["udp.length"].isdigit() for r in responses):
+        raise ValueError("TCP DNS capture requires an explicit DNS message size calculation")
+    largest = max(responses, key=lambda r: int(r["udp.length"]) - 8)
+    lines += [f"- 최대 DNS 응답 {largest['frame.number']}번: DNS 메시지 "
+              f"**{int(largest['udp.length']) - 8}바이트**, 프레임 전체 **{largest['frame.len']}바이트**. "
+              "DNS 길이는 UDP 길이에서 UDP 헤더 8바이트를 뺀 값이다.",
+              f"- 이 응답에는 Answer {largest['dns.count.answers']}개, Authority "
+              f"{largest['dns.count.auth_rr']}개, Additional {largest['dns.count.add_rr']}개가 들어 있다. "
+              "위임 NS와 추가 주소 레코드가 많은 응답은 최종 A 답변보다 클 수 있다.", "",
+              "기존 Downloads/out의 캡처 로그는 Wi-Fi 인터페이스에서 수집했다고 기록한다. "
+              "제출용 파일은 Task 1 패킷만 남긴 파일이며 원본 비공개 캡처는 제출에서 제외한다. "
+              "pcap과 수집 로그만으로 물리적 장소를 증명할 수는 없다.", "",
+              "## 부록: 관측 CNAME 체인", ""] + chain_rows
+    lines += ["", "## 부록: 네트워크·리졸버별 주소 집합", "",
+              "| 네트워크 | 사이트 | 리졸버 | IPv4 주소 집합 | 응답 서버 |",
+              "|---|---|---|---|---|"] + address_rows
+    destination = os.path.join(OUT, "report.md")
+    fd, temporary = tempfile.mkstemp(dir=OUT, suffix=".md.tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n")
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    print(f"Report saved: {destination}")
 
 
 if __name__ == "__main__":
