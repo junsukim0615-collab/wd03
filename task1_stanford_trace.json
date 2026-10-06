@@ -1,0 +1,203 @@
+{
+  "measured_at": "2026-10-06T02:55:12.612764+00:00",
+  "name": "www.stanford.edu",
+  "address": "3.33.186.135",
+  "stats": {
+    "total_queries": 27,
+    "no_glue_queries": 21,
+    "requested_name_queries": 6,
+    "ns_walks": 7,
+    "cname_restarts": 1
+  },
+  "queries": [
+    {
+      "server": "198.41.0.4",
+      "name": "www.stanford.edu",
+      "purpose": "requested_name",
+      "depth": 0,
+      "rcode": 0
+    },
+    {
+      "server": "192.31.80.30",
+      "name": "www.stanford.edu",
+      "purpose": "requested_name",
+      "depth": 0,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "ns5.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "192.41.162.30",
+      "name": "ns5.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "208.80.124.2",
+      "name": "ns5.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "ns6.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "192.41.162.30",
+      "name": "ns6.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "208.80.124.2",
+      "name": "ns6.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "ns7.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "192.41.162.30",
+      "name": "ns7.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "208.80.124.2",
+      "name": "ns7.dnsmadeeasy.com",
+      "purpose": "no_glue_ns",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "171.64.7.88",
+      "name": "www.stanford.edu",
+      "purpose": "requested_name",
+      "depth": 0,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "stanford.netlifyglobalcdn.com",
+      "purpose": "requested_name",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "192.41.162.30",
+      "name": "stanford.netlifyglobalcdn.com",
+      "purpose": "requested_name",
+      "depth": 1,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "dns1.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "192.55.83.30",
+      "name": "dns1.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.51.44.1",
+      "name": "dns1.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "dns2.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "192.55.83.30",
+      "name": "dns2.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.51.44.1",
+      "name": "dns2.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "dns3.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "192.55.83.30",
+      "name": "dns3.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.51.44.1",
+      "name": "dns3.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.41.0.4",
+      "name": "dns4.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "192.55.83.30",
+      "name": "dns4.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.51.44.1",
+      "name": "dns4.p02.nsone.net",
+      "purpose": "no_glue_ns",
+      "depth": 2,
+      "rcode": 0
+    },
+    {
+      "server": "198.51.44.2",
+      "name": "stanford.netlifyglobalcdn.com",
+      "purpose": "requested_name",
+      "depth": 1,
+      "rcode": 0
+    }
+  ]
+}
