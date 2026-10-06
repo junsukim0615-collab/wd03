@@ -226,20 +226,33 @@ def collect(network):
     print(f"Saved run {run['run_id']} to {path}")
 
 
-def report():
+def select_runs(data, networks=None):
+    """Select two real, explicitly named networks, never infer a physical switch."""
+    placeholder = {"current-network", "현재 네트워크 이름"}
+    available = sorted({r.get("network") for r in data["runs"]
+                        if r.get("completed") and r.get("network")
+                        and r["network"] not in placeholder})
+    if networks is None:
+        if len(available) != 2:
+            raise ValueError("Specify --networks NAME1 NAME2; exactly two named "
+                             f"networks are required. Available: {available}")
+        networks = available
+    if (len(networks) != 2 or len(set(networks)) != 2
+            or any(n not in available for n in networks)):
+        raise ValueError(f"Choose two distinct completed named networks from {available}")
+    return [max((r for r in data["runs"] if r.get("completed") and r.get("network") == n),
+                key=lambda r: r["started_at"]) for n in networks]
+
+
+def report(networks=None):
     """Analyze saved runs only; read packet evidence with Wireshark's tshark."""
     with open(os.path.join(OUT, "chains.json"), encoding="utf-8") as stream:
         data = json.load(stream)
     if data.get("schema_version") != 1:
         raise ValueError("Unsupported chains.json schema")
-    networks = ["학교 Wi-Fi", "휴대폰 테더링"]
-    runs = []
-    for network in networks:
-        candidates = [r for r in data["runs"]
-                      if r.get("network") == network and r.get("completed")]
-        if not candidates:
-            raise ValueError(f"No completed run for {network}")
-        run = max(candidates, key=lambda r: r["started_at"])
+    runs = select_runs(data, networks)
+    for run in runs:
+        network = run["network"]
         for site in SITES:
             for resolver in RESOLVERS:
                 result = run.get("sites", {}).get(site, {}).get(resolver, {})
@@ -253,7 +266,6 @@ def report():
                     raise ValueError(f"Invalid chain: {network}/{site}/{resolver}")
                 for address in result["addresses"]:
                     ipaddress.IPv4Address(address)
-        runs.append(run)
 
     def cell(value):
         return str(value).replace("|", "\\|").replace("\n", " ")
@@ -261,12 +273,14 @@ def report():
     def last_two(name):
         return ".".join(normalize(name).split(".")[-2:])
 
+    network_label = "와 ".join(cell(r["network"]) for r in runs)
+
     providers = {"edgekey.net": "Akamai", "edgesuite.net": "Akamai",
                  "akamaiedge.net": "Akamai", "akamai.net": "Akamai",
                  "fastly.net": "Fastly", "netlifyglobalcdn.com": "Netlify"}
     lines = ["# Task 2 — DNS capture and steering report", "", "## 측정 환경", "",
-             "학교 Wi-Fi와 휴대폰 테더링의 최신 완료 기록을 선택했다. "
-             "`현재 네트워크 이름` 기록과 미완료 기록은 제외했다.", ""]
+             f"{network_label}의 최신 완료 기록을 선택했다. "
+             "이름이 확인되지 않은 기본 라벨과 미완료 기록은 제외했다.", ""]
     for run in runs:
         lines.append(f"- {cell(run['network'])}: {run['started_at']} ~ "
                      f"{run['finished_at']} (UTC), run ID `{run['run_id']}`")
@@ -351,7 +365,7 @@ def report():
         m = sum(any(changes[s]) for s in selected)
         rd = sum(changes[s][0] for s in selected)
         nd = sum(changes[s][1] for s in selected)
-        lines += ["", f"**{label}: 학교 Wi-Fi와 휴대폰 테더링에서 CDN 사이트 {n}개 중 "
+        lines += ["", f"**{label}: {network_label}에서 CDN 사이트 {n}개 중 "
                   f"{m}개가 리졸버 또는 네트워크에 따라 달랐다 ({m}/{n}).** "
                   f"리졸버 차이 {rd}/{n}, 네트워크 차이 {nd}/{n}."]
     lines += ["", "### 해석과 한계", "",
@@ -430,17 +444,28 @@ if __name__ == "__main__":
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--collect", action="store_true")
     mode.add_argument("--report", action="store_true")
-    p.add_argument("--network", default="current-network", help="Actual network label, if known")
+    p.add_argument("--network", help="Required with --collect: actual network name")
+    p.add_argument("--networks", nargs=2, metavar=("NAME1", "NAME2"),
+                   help="With --report: select two completed named networks")
     a = p.parse_args()
     os.makedirs(OUT, exist_ok=True)
     if a.collect:
+        if a.networks:
+            p.error("--networks is only valid with --report")
         if not a.network or not a.network.strip():
             p.error("--collect requires --network NAME")
+        if a.network.strip() in {"current-network", "현재 네트워크 이름"}:
+            p.error("Use an actual network name, not a placeholder")
         try:
-            collect(a.network)
+            collect(a.network.strip())
         except (OSError, ValueError, RuntimeError) as exc:
             p.exit(1, f"Collection failed: {exc}\n")
     elif a.report:
-        report()
+        if a.network:
+            p.error("Use --networks NAME1 NAME2 with --report")
+        try:
+            report(a.networks)
+        except (OSError, ValueError, RuntimeError) as exc:
+            p.exit(1, f"Report failed: {exc}\n")
     else:
         p.print_help()

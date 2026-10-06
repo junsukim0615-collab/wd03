@@ -19,17 +19,25 @@ Python 3, dig, Wireshark의 tshark가 필요하다. Ubuntu/WSL에서는 dig가 d
 
 ```bash
 python3 task1_resolve.py --verify
+python3 task1_resolve.py www.stanford.edu --stats --trace-json out/task1_stanford_trace.json
 python3 task2_steering.py --collect --network "학교 Wi-Fi"
 # 실제 네트워크를 휴대폰 테더링으로 전환한 뒤:
 python3 task2_steering.py --collect --network "휴대폰 테더링"
-python3 task2_steering.py --report
+python3 task2_steering.py --report --networks "학교 Wi-Fi" "휴대폰 테더링"
 python3 bench.py --yours
 python3 test_tasks.py
+python3 -m unittest test_regressions.py
 ```
 
-`--report`는 각 네트워크 라벨의 최신 완료 run을 선택하고 72개 조합을 검증한다. 라벨만 바꾸어 같은 네트워크에서 수집하면 B3를 충족하지 않는다. 현재 보고서는 기존 2026-09-16 두 네트워크 기록과 기존 캡처를 재분석한 것이며 새로 네트워크를 전환했다고 주장하지 않는다. 2026-09-30 `current-network` 기록은 추가 자료로만 보존했다.
+`--collect`에는 실제 네트워크를 식별하는 `--network NAME`을 반드시 지정한다. 이름은 자유롭게 정할 수 있다. `--report --networks NAME1 NAME2`는 선택한 두 이름의 최신 완료 run으로 72개 조합을 검증한다. 이름이 확인된 완료 네트워크가 정확히 두 개면 `--report`만으로 자동 선택한다. 한 개 또는 세 개 이상이면 명확한 선택을 요구하며 보고서를 덮어쓰지 않는다. 과거의 `current-network`, `현재 네트워크 이름` 같은 기본 라벨은 자동 집계에서 제외하고 새 수집에서는 거부한다.
+
+라벨만 바꾸어 같은 네트워크에서 수집하면 B3를 충족하지 않는다. 현재 보고서는 기존 2026-09-16 두 네트워크 기록과 기존 캡처를 재분석한 것이며 새로 네트워크를 전환했다고 주장하지 않는다. 2026-09-30 `current-network` 기록은 추가 자료로만 보존했다. 실제 두 네트워크 사용 여부는 측정자가 확인해야 한다.
+
+Task 1의 `--stats`는 전체 질의와 glue 누락 보조 질의를 분리한다. `out/task1_stanford_trace.json`은 2026-10-06 재측정 근거다. NS 이름 해석 안에서 발생한 하위 NS 조회나 CNAME 재시작도 보조 조회에 포함하며 중복 합산하지 않는다. UDP→TCP 재시도는 별도 논리 질의로 세지 않는다.
 
 ## 검증 범위
+
+2026-10-06 보완 후 실제 `--verify`는 5/5였고, 오프라인 회귀 테스트 7개가 통과했다. Task 2 재검사는 4 passed/0 failed/1 skipped, Task 3은 2 passed/0 failed/1 skipped였다. 아래의 전체 공식 테스트 수치는 이전 실행 기록이며 이번 재검사와 구분한다.
 
 Task 1은 실제 DNS 비교를 통과했다. Task 3은 upstream 275, stale 0으로 공식 baseline 325/266보다 개선됐다. 테스트 스크립트의 skip은 수동 판정 항목 또는 도구 탐지 한계이며 통과와 구분한다. 패킷은 별도로 Wireshark tshark로 분석해 질의/응답 각 3개, 위임/최종 답변 및 최대 메시지 크기를 확인했다.
 

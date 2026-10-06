@@ -2,12 +2,14 @@
 """Week 3 · Task 1 — an iterative DNS resolver using only Python's stdlib."""
 import argparse
 import ipaddress
+import json
 import random
 import shutil
 import socket
 import struct
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 ROOT_SERVERS = ["198.41.0.4", "199.9.14.201", "192.33.4.12"]
 VERIFY_NAMES = [("www.korea.ac.kr", "stable"), ("dns.google", "stable"),
@@ -131,11 +133,14 @@ class Resolver:
             return self._parse_response(self._receive_exact(sock, length), query_id)
 
     def resolve(self, name, depth=0):
+        self.query_log = []
+        self.ns_walks = 0
+        self.cname_restarts = 0
         path, budget = [], [256]
         address = self._walk(name, depth, path, budget, frozenset())
         return address, path
 
-    def _walk(self, name, depth, path, budget, active):
+    def _walk(self, name, depth, path, budget, active, auxiliary=False):
         if depth >= MAX_DEPTH:
             raise RuntimeError("maximum delegation/CNAME depth exceeded")
         name, servers = self._normalise(name), list(ROOT_SERVERS)
@@ -153,10 +158,17 @@ class Resolver:
                     raise RuntimeError("maximum total DNS query count exceeded")
                 budget[0] -= 1
                 path.append(server)
+                # One entry per logical query; a UDP-to-TCP retry is not a new hop.
+                event = {"server": server, "name": name,
+                         "purpose": "no_glue_ns" if auxiliary else "requested_name",
+                         "depth": depth}
+                self.query_log.append(event)
                 try:
                     response = self._query(server, name)
-                except (OSError, ValueError, struct.error):
+                except (OSError, ValueError, struct.error) as exc:
+                    event["error"] = str(exc)
                     continue  # A failed server is skipped in favour of a peer.
+                event["rcode"] = response["rcode"]
                 if response["rcode"] != 0:
                     continue
                 cname = None
@@ -168,7 +180,8 @@ class Resolver:
                     if rtype == TYPE_CNAME:
                         cname = data
                 if cname:
-                    return self._walk(cname, depth + 1, path, budget, active)
+                    self.cname_restarts += 1
+                    return self._walk(cname, depth + 1, path, budget, active, auxiliary)
                 ns_names = [data for _owner, rtype, data in response["authority"]
                             if rtype == TYPE_NS and data]
                 if not ns_names:
@@ -181,8 +194,9 @@ class Resolver:
                     if ns_name in glue:
                         next_servers.extend(glue[ns_name])
                     else:  # No glue: make a separate iterative walk for this NS hostname.
+                        self.ns_walks += 1
                         try:
-                            ns_ip = self._walk(ns_name, depth + 1, path, budget, active)
+                            ns_ip = self._walk(ns_name, depth + 1, path, budget, active, True)
                             next_servers.append(ns_ip)
                         except RuntimeError:
                             pass
@@ -244,13 +258,30 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("name", nargs="?", default="www.korea.ac.kr")
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument("--stats", action="store_true", help="Show no-glue query counts")
+    parser.add_argument("--trace-json", help="Save this single-name query trace as JSON")
     args = parser.parse_args()
     if args.verify:
+        if args.stats or args.trace_json:
+            parser.error("--stats/--trace-json are for a single-name run, not --verify")
         sys.exit(verify())
-    address, path = Resolver().resolve(args.name)
+    resolver = Resolver()
+    address, path = resolver.resolve(args.name)
     for index, server in enumerate(path, 1):
         print(f"  {index}. asked {server}")
     print(f"\n  {args.name} -> {address}")
+    auxiliary = sum(q["purpose"] == "no_glue_ns" for q in resolver.query_log)
+    stats = {"total_queries": len(path), "no_glue_queries": auxiliary,
+             "requested_name_queries": len(path) - auxiliary,
+             "ns_walks": resolver.ns_walks, "cname_restarts": resolver.cname_restarts}
+    if args.stats:
+        print(json.dumps(stats, indent=2))
+    if args.trace_json:
+        with open(args.trace_json, "w", encoding="utf-8") as stream:
+            json.dump({"measured_at": datetime.now(timezone.utc).isoformat(),
+                       "name": args.name, "address": address, "stats": stats,
+                       "queries": resolver.query_log}, stream, indent=2)
+            stream.write("\n")
 
 
 if __name__ == "__main__":
