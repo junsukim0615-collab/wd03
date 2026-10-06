@@ -16,7 +16,7 @@
 최종 zone은 SOA로 검증한 zone cut이 아닌 운영 도메인 표기다. 서로 다른 체인은 모두 표시한다. 제3자 미확인은 부재 확정이 아니다.
 
 | 사이트 | 체인 길이 | 최종 zone | 제3자 여부 / 근거 | 규칙 R 판정 |
-|---|---|---|---|---|---|
+|---|---|---|---|---|
 | www.microsoft.com | 2 | akamaiedge.net | 예 — Akamai | 예 |
 | www.netflix.com | 1 | netflix.com | 외부 미확인 — 서비스 단위 자체 CDN | 아니오 |
 | www.adobe.com | 2 | akamai.net | 예 — Akamai | 예 |
